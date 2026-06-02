@@ -155,3 +155,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+mqnli_factual/
+mqnli_das/
+test_trainer/
