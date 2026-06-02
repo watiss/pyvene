@@ -1,11 +1,12 @@
 import torch
 import json
-from pyvene import CausalModel
 import random
 from sklearn.metrics import accuracy_score
 
 # copied as is from the MQNLI.ipynb
 def create_causal_model():
+    from pyvene import CausalModel
+
     # JSON files generated from adapting MQNLI codebase
     # https://github.com/atticusg/MultiplyQuantifiedData
 
@@ -457,3 +458,13 @@ def create_counterfactual_dataset(
     )
 
     return dataset
+
+def accuracy_metric(x):
+    # With left padding the answer token sits at position -1, so its label is at
+    # -1 and the logits predicting it (position i predicts token i+1) are at -2.
+    labels = x.label_ids[:, -1]
+    # predictions = x.predictions[0].argmax(axis=-1)[:, -2]  # uncomment for gpt-neox
+    predictions = x.predictions.argmax(axis=-1)[:, -2]
+    return {
+        'accuracy': accuracy_score(y_true=labels, y_pred=predictions),
+    }

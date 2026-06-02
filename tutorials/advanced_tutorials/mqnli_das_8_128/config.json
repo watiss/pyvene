@@ -1,0 +1,39 @@
+{
+  "intervention_constant_sources": [
+    false
+  ],
+  "intervention_dimensions": [
+    768
+  ],
+  "intervention_types": [
+    "<class 'pyvene.models.interventions.RotatedSpaceIntervention'>"
+  ],
+  "mode": "parallel",
+  "representations": [
+    [
+      8,
+      "block_output",
+      "pos",
+      1,
+      null,
+      null,
+      null,
+      [
+        [
+          0,
+          128
+        ]
+      ],
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  ],
+  "sorted_keys": [
+    "layer_8_comp_block_output_unit_pos_nunit_1#0"
+  ],
+  "transformers_version": "5.9.0"
+}

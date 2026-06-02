@@ -7,7 +7,7 @@ from transformers import TrainingArguments, Trainer
 from datasets import Dataset
 from sklearn.metrics import accuracy_score
 from pyvene.models.gpt2.modelings_intervenable_gpt2 import create_gpt2_lm
-from MQNLI_utils import print_premise, print_hypothesis, preprocess, create_causal_model
+from MQNLI_utils import print_premise, print_hypothesis, preprocess, create_causal_model, accuracy_metric
 
 os.environ['CUDA_DEVICE_ORDER'] = 'PCI_BUS_ID'
 os.environ['CUDA_VISIBLE_DEVICES'] = '0,1,2'
@@ -61,16 +61,6 @@ os.environ["WANDB_PROJECT"]=TRAIN_DIR
 
 # save your trained model checkpoint to wandb
 os.environ["WANDB_LOG_MODEL"]="false"
-
-def accuracy_metric(x):
-    # With left padding the answer token sits at position -1, so its label is at
-    # -1 and the logits predicting it (position i predicts token i+1) are at -2.
-    labels = x.label_ids[:, -1]
-    # predictions = x.predictions[0].argmax(axis=-1)[:, -2]  # uncomment for gpt-neox
-    predictions = x.predictions.argmax(axis=-1)[:, -2]
-    return {
-        'accuracy': accuracy_score(y_true=labels, y_pred=predictions),
-    }
 
 train_ds = Dataset.from_dict(train_dataset)
 val_ds = Dataset.from_dict(val_dataset)
