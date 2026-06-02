@@ -322,10 +322,19 @@ def print_hypothesis(setting):
     )
 
 # ===== Cell 27 =====
-dataset = mqlni_model.generate_factual_dataset(100, sampler=mqlni_model.sample_input_tree_balanced, return_tensors=False)
+examples = mqlni_model.generate_factual_dataset(
+    500,
+    sampler=mqlni_model.sample_input_tree_balanced,
+    return_tensors=False,
+)
 
-X = [example['input_ids'] for example in dataset]
-y = [example['labels'] for example in dataset]
+random.shuffle(examples)
+
+train_examples = examples[:400]
+test_examples = examples[400:]
+
+X = [example['input_ids'] for example in train_examples]
+y = [example['labels'] for example in train_examples]
 
 # ===== Cell 28 =====
 i = 0
@@ -373,29 +382,43 @@ IGNORE_INDEX = -100
 MAX_LENGTH = 64
 
 tokenizer.pad_token = tokenizer.eos_token
+# Left-pad so that the real prompt always ends at the final positions. This is
+# what makes indexing the answer at [:, -1] (and its predicting logits at
+# [:, -2]) correct for every example regardless of prompt length.
+tokenizer.padding_side = 'left'
 
 def preprocess(X, y):
     examples = [preprocess_input(x) for x in X]
     labels = [preprocess_output(y) for y in y]
 
-    examples = tokenizer(
-        examples, 
-        padding='max_length', 
-        max_length=MAX_LENGTH, 
-        truncation=True, 
-        return_tensors='pt'
+    # First token id of each (single-token) answer string.
+    label_ids = tokenizer(labels, add_special_tokens=False)['input_ids']
+    for ids in label_ids:
+        # We score a single answer token; assert the relation is one token.
+        assert len(ids) >= 1
+    label_ids = [ids[0] for ids in label_ids]
+
+    # Append the answer token to the prompt so the model is teacher-forced on it
+    # and the answer ends up at the last (non-pad) position after left padding.
+    prompt_ids = tokenizer(examples, add_special_tokens=False)['input_ids']
+    full_ids = [p + [a] for p, a in zip(prompt_ids, label_ids)]
+    # Truncate from the LEFT so the appended answer token is never dropped.
+    full_ids = [ids[-MAX_LENGTH:] for ids in full_ids]
+
+    # Left-pad the full (prompt + answer) sequences to MAX_LENGTH.
+    examples = tokenizer.pad(
+        {'input_ids': full_ids},
+        padding='max_length',
+        max_length=MAX_LENGTH,
+        return_tensors='pt',
     )
-    labels = tokenizer(
-        labels, 
-        padding='max_length', 
-        max_length=MAX_LENGTH, 
-        truncation=True, 
-        return_tensors='pt'
-    )['input_ids'][:, 0] # get first token of label
-    
-    # put label at the last index
+    assert examples['input_ids'].shape[1] == MAX_LENGTH
+
+    # Put the answer label at the last index; everything else is ignored.
+    # With left padding, position -1 is the appended answer token, and the
+    # logits at position -2 are the ones that predict it.
     examples['labels'] = torch.full_like(examples['input_ids'], IGNORE_INDEX)
-    examples['labels'][:, -1] = labels
+    examples['labels'][:, -1] = torch.tensor(label_ids)
 
     return examples
 
@@ -409,6 +432,8 @@ os.environ["WANDB_PROJECT"]=TRAIN_DIR
 os.environ["WANDB_LOG_MODEL"]="false"
 
 def accuracy_metric(x):
+    # With left padding the answer token sits at position -1, so its label is at
+    # -1 and the logits predicting it (position i predicts token i+1) are at -2.
     labels = x.label_ids[:, -1]
     # predictions = x.predictions[0].argmax(axis=-1)[:, -2]  # uncomment for gpt-neox
     predictions = x.predictions.argmax(axis=-1)[:, -2]
@@ -424,9 +449,13 @@ training_args = TrainingArguments(
     output_dir=TRAIN_DIR,
     # overwrite_output_dir=True,
     eval_strategy="epoch",
+    ######
     # use a smaller learning rate and fewer epochs since the dataset is small and we are fine-tuning a pre-trained model
-    learning_rate=1e-05,
-    num_train_epochs=5,
+    # learning_rate=1e-05,
+    # num_train_epochs=1,
+    learning_rate=5e-5,      # or 1e-4
+    num_train_epochs=50,
+    ######
     per_device_train_batch_size=batch_size,
     per_device_eval_batch_size=batch_size,
     report_to="wandb", # optional, remove if you don't want to log to wandb
@@ -451,7 +480,7 @@ trainer.save_model(TRAIN_DIR)
 
 # ===== Cell 40 =====
 tokenizer.pad_token = tokenizer.eos_token
-test_examples = mqlni_model.generate_factual_dataset(100, sampler=mqlni_model.sample_input_tree_balanced, return_tensors=False)
+# test_examples = mqlni_model.generate_factual_dataset(100, sampler=mqlni_model.sample_input_tree_balanced, return_tensors=False)
 X = [example['input_ids'] for example in test_examples]
 y = [example['labels'] for example in test_examples]
 test_dataset = preprocess(X, y)
@@ -464,6 +493,26 @@ print(f"Train set evaluation results: {results}")
 # ===== Cell 42 =====
 results = trainer.evaluate(test_ds)
 print(f"Test set evaluation results: {results}")
+
+####### debugging #######
+print(train_ds[0]["input_ids"][-20:])
+print(test_ds[0]["input_ids"][-20:])
+
+print(train_ds[1]["input_ids"][:-20])
+print(test_ds[1]["input_ids"][:-20])
+
+print(train_ds is test_ds)
+
+preds = trainer.predict(train_ds)
+labels = preds.label_ids[:, -1]
+predictions = preds.predictions.argmax(-1)[:, -2]
+for i in range(20):
+    print(
+        tokenizer.decode([labels[i]]),
+        " | ",
+        tokenizer.decode([predictions[i]])
+    )
+#########################
 
 # ===== Cell 43 =====
 wandb.finish()
